@@ -1,4 +1,5 @@
 # ga_bp.py
+
 import numpy as np
 import pandas as pd
 import random
@@ -17,6 +18,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import mean_squared_error, r2_score
 
+
 def load_and_prepare(csv_path):
     df = pd.read_csv(csv_path)
     df = df.dropna(subset=['VB']).reset_index(drop=True)
@@ -29,6 +31,7 @@ def load_and_prepare(csv_path):
     X = pd.concat([X, mat_dummies], axis=1)
     y = df['VB'].values
     return train_test_split(X, y, test_size=0.2, random_state=42)
+
 
 def evaluate_individual(ind, X, y):
     hidden, lr, alpha = ind
@@ -45,6 +48,7 @@ def evaluate_individual(ind, X, y):
     scores = cross_val_score(model, X, y, cv=3, scoring='neg_mean_squared_error')
     return -scores.mean()
 
+
 def init_population(size):
     pop = []
     for _ in range(size):
@@ -54,12 +58,14 @@ def init_population(size):
         pop.append([hidden, lr, alpha])
     return pop
 
+
 def crossover(p1, p2):
     return [
         p2[0] if random.random() < 0.5 else p1[0],
         (p1[1] + p2[1]) / 2,
         (p1[2] + p2[2]) / 2
     ]
+
 
 def mutate(ind, mut_rate=0.2):
     if random.random() < mut_rate:
@@ -71,6 +77,7 @@ def mutate(ind, mut_rate=0.2):
         ind[2] *= 10 ** random.uniform(-0.5, 0.5)
         ind[2] = min(max(ind[2], 1e-6), 1e-2)
     return ind
+
 
 def ga_optimize(X, y, pop_size=30, generations=100):
     pop = init_population(pop_size)
@@ -90,21 +97,12 @@ def ga_optimize(X, y, pop_size=30, generations=100):
     best_ind = min(pop, key=lambda ind: evaluate_individual(ind, X, y))
     return (*best_ind, history)
 
+
 def train_and_evaluate(csv_path):
     X_train, X_test, y_train, y_test = load_and_prepare(csv_path)
     print("开始遗传算法 + BP 优化…")
     best_h, best_lr, best_alpha, history = ga_optimize(X_train, y_train)
     print(f"最优参数 → hidden={best_h}, lr={best_lr:.5f}, alpha={best_alpha:.6f}")
-
-    # 绘制迭代曲线
-    plt.figure()
-    plt.plot(range(1, len(history)+1), history, marker='o')
-    plt.xlabel("迭代代数")
-    plt.ylabel("最优 MSE")
-    plt.title("遗传算法迭代最优 MSE 变化")
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
 
     # 最终模型训练
     pipeline = Pipeline([
@@ -118,16 +116,28 @@ def train_and_evaluate(csv_path):
         ))
     ])
     pipeline.fit(X_train, y_train)
-    y_pred = pipeline.predict(X_test)
 
-    mse = mean_squared_error(y_test, y_pred)
+    # **先保存模型**
+    joblib.dump(pipeline, "wear_model.pkl")
+    print("模型已保存为 wear_model.pkl")
+
+    # 在测试集上评估
+    y_pred = pipeline.predict(X_test)
+    mse  = mean_squared_error(y_test, y_pred)
     rmse = math.sqrt(mse)
     r2   = r2_score(y_test, y_pred)
     print(f"测试集 RMSE={rmse:.4f}, R²={r2:.4f}")
 
-    # 保存模型
-    joblib.dump(pipeline, "wear_model.pkl")
-    print("模型已保存为 wear_model.pkl")
+    # 绘制迭代曲线
+    plt.figure()
+    plt.plot(range(1, len(history)+1), history, marker='o')
+    plt.xlabel("迭代代数")
+    plt.ylabel("最优 MSE")
+    plt.title("遗传算法迭代最优 MSE 变化")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
 
 if __name__ == "__main__":
     import sys
