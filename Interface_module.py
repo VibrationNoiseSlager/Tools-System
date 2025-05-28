@@ -16,9 +16,9 @@ from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
     QFont, QFontDatabase, QGradient, QIcon,
     QImage, QKeySequence, QLinearGradient, QPainter,
     QPalette, QPixmap, QRadialGradient, QTransform)
-from PySide6.QtWidgets import (QApplication, QComboBox, QHeaderView, QLabel,
-    QLineEdit, QProgressBar, QPushButton, QSizePolicy,
-    QStackedWidget, QTableView, QWidget)
+from PySide6.QtWidgets import (QApplication, QComboBox, QGraphicsView, QHeaderView,
+    QLabel, QLineEdit, QProgressBar, QPushButton,
+    QSizePolicy, QStackedWidget, QTableView, QWidget)
 
 class Ui_Form(object):
     def setupUi(self, Form):
@@ -59,7 +59,7 @@ class Ui_Form(object):
         self.Input_tool_information.setGeometry(QRect(450, 99, 571, 31))
         self.Tool_information_view = QTableView(self.Main_interface)
         self.Tool_information_view.setObjectName(u"Tool_information_view")
-        self.Tool_information_view.setGeometry(QRect(15, 200, 1021, 541))
+        self.Tool_information_view.setGeometry(QRect(275, 200, 761, 541))
         self.Tool_information_search_button = QPushButton(self.Main_interface)
         self.Tool_information_search_button.setObjectName(u"Tool_information_search_button")
         self.Tool_information_search_button.setGeometry(QRect(310, 100, 131, 31))
@@ -72,6 +72,12 @@ class Ui_Form(object):
         self.label_4_1_1.setObjectName(u"label_4_1_1")
         self.label_4_1_1.setGeometry(QRect(370, 20, 201, 41))
         self.label_4_1_1.setFont(font)
+        self.Tool_image_view = QGraphicsView(self.Main_interface)
+        self.Tool_image_view.setObjectName(u"Tool_image_view")
+        self.Tool_image_view.setGeometry(QRect(10, 200, 256, 192))
+        self.Tool_data_view = QTableView(self.Main_interface)
+        self.Tool_data_view.setObjectName(u"Tool_data_view")
+        self.Tool_data_view.setGeometry(QRect(10, 400, 256, 341))
         self.stackedWidget.addWidget(self.Main_interface)
         self.Visual_interface = QWidget()
         self.Visual_interface.setObjectName(u"Visual_interface")
@@ -134,7 +140,7 @@ class Ui_Form(object):
         self.Data_analysis_loading_progress_bar.setObjectName(u"Data_analysis_loading_progress_bar")
         self.Data_analysis_loading_progress_bar.setGeometry(QRect(190, 190, 751, 31))
         self.Data_analysis_loading_progress_bar.setFont(font1)
-        self.Data_analysis_loading_progress_bar.setValue(12)
+        self.Data_analysis_loading_progress_bar.setValue(0)
         self.label_2 = QLabel(self.Testing_interface)
         self.label_2.setObjectName(u"label_2")
         self.label_2.setGeometry(QRect(390, 20, 201, 51))

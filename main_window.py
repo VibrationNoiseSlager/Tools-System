@@ -1,9 +1,9 @@
-# main_window.py
-
+# -*- coding: utf-8 -*-
 from PySide6.QtCore        import Qt, QThread, Signal, QPointF
 from PySide6.QtGui         import QPainter, QColor, QPen, QBrush
-from PySide6.QtWidgets     import (
-    QMainWindow, QFileDialog, QMessageBox, QHeaderView, QGraphicsSimpleTextItem
+from PySide6.QtWidgets import (
+    QMainWindow, QFileDialog, QMessageBox, QHeaderView,
+    QGraphicsSimpleTextItem, QAbstractItemView
 )
 from PySide6.QtCharts      import QChart, QPieSeries, QLineSeries, QValueAxis
 import PySide6.QtSql        as QtSql
@@ -25,35 +25,33 @@ class PredictWorker(QThread):
         self.csv_path = csv_path
 
     def run(self):
-        # 1) 加载模型
+        # 1. 加载模型
         self.progress.emit(5)
         model = joblib.load(MODEL_FILE)
         self.progress.emit(20)
 
-        # 2) 读取 CSV 并预处理
+        # 2. 读取 CSV 并预处理
         df = pd.read_csv(self.csv_path)
         feat_cols = [
-            'time', 'DOC', 'feed',
-            'smcAC', 'smcDC',
-            'vib_table', 'vib_spindle',
-            'AE_table', 'AE_spindle'
+            'time','DOC','feed',
+            'smcAC','smcDC',
+            'vib_table','vib_spindle',
+            'AE_table','AE_spindle'
         ]
         X = df[feat_cols]
-
-        # 独热编码 material 列
         mats = pd.get_dummies(df['material'], prefix='mat')
-        for col in ['mat_1', 'mat_2']:
+        for col in ('mat_1','mat_2'):
             if col not in mats:
                 mats[col] = 0
-        mats = mats[['mat_1', 'mat_2']]
+        mats = mats[['mat_1','mat_2']]
         X = pd.concat([X, mats], axis=1)
         self.progress.emit(50)
 
-        # 3) 预测
+        # 3. 预测
         y_pred = model.predict(X)
         self.progress.emit(90)
 
-        # 4) 发射结果
+        # 4. 发射结果
         self.finished.emit(list(df.index), y_pred.tolist())
         self.progress.emit(100)
 
@@ -84,7 +82,7 @@ class MainWindow(QMainWindow):
         if not db.open():
             QMessageBox.critical(self, "数据库错误", db.lastError().text())
 
-        # 界面切换按钮
+        # 界面切换
         self.ui.Main_interface_button.clicked.connect(
             lambda: self.ui.stackedWidget.setCurrentWidget(self.ui.Main_interface))
         self.ui.Visual_interface_button.clicked.connect(
@@ -110,21 +108,40 @@ class MainWindow(QMainWindow):
         try:
             self.ui.Start_data_analysis_button.clicked.disconnect()
         except TypeError:
-            # 如果没有需要断开的信号连接，就忽略
             pass
         self.ui.Start_data_analysis_button.clicked.connect(self.start_predict)
 
     # —— 刀具数据库操作 —— #
     def load_table(self, idx: int):
+        """
+        加载第 idx 个刀具表，并对 QTableView 进行列宽和滚动条优化。
+        """
         table = self.TABLE_MAP[idx]
         db = QtSql.QSqlDatabase.database("tools_conn")
         self.model = QtSql.QSqlTableModel(self, db)
         self.model.setTable(table)
         self.model.setEditStrategy(QtSql.QSqlTableModel.OnFieldChange)
         self.model.select()
+
         tv = self.ui.Tool_information_view
         tv.setModel(self.model)
-        tv.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+
+        # —— 表格显示优化 —— #
+        header = tv.horizontalHeader()
+        # 所有列按内容自适应
+        header.setSectionResizeMode(QHeaderView.ResizeToContents)
+        # 最后一列填满剩余空间
+        header.setStretchLastSection(True)
+        # 像素级平滑滚动
+        tv.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
+        tv.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        # 滚动条按需出现
+        tv.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        tv.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        # 交替行色
+        tv.setAlternatingRowColors(True)
+        # 自动行高
+        tv.resizeRowsToContents()
 
     def search_tool(self):
         txt = self.ui.Input_tool_information.text().strip()
@@ -143,14 +160,14 @@ class MainWindow(QMainWindow):
 
     # —— 饼图可视化 —— #
     def refresh_charts(self):
-        conn = get_conn()
+        conn = get_conn()  # 不要传参
         cur = conn.cursor()
         for table, attr in self.CHART_MAP.items():
             col = "刀具状况" if table in ("drill_tools", "indexable_mill_tools") else "刀具状态"
-            counts = {s: 0 for s in ("新", "良好", "差")}
-            for s in counts:
-                cur.execute(f"SELECT COUNT(*) FROM {table} WHERE {col}=?", (s,))
-                counts[s] = cur.fetchone()[0]
+            counts = {"新":0, "良好":0, "差":0}
+            for k in counts:
+                cur.execute(f"SELECT COUNT(*) FROM {table} WHERE {col}=?", (k,))
+                counts[k] = cur.fetchone()[0]
             view = getattr(self.ui, attr)
             self._draw_pie(view, counts, table)
         conn.close()
@@ -160,16 +177,16 @@ class MainWindow(QMainWindow):
         series = QPieSeries()
         total = sum(counts.values())
         if total == 0:
-            sl = series.append("无数据", 1)
+            sl = series.append("无数据",1)
             sl.setBrush(Qt.lightGray)
             sl.setLabelVisible(True)
         else:
-            cmap = {"新": "#2ecc71", "良好": "#f1c40f", "差": "#e74c3c"}
-            for k, v in counts.items():
+            cmap = {"新":"#2ecc71","良好":"#f1c40f","差":"#e74c3c"}
+            for k,v in counts.items():
                 sl = series.append(f"{k} {v}", v)
                 sl.setBrush(QColor(cmap[k]))
                 sl.setLabelVisible(True)
-                if k == "差" and v:
+                if k=="差" and v>0:
                     sl.setExploded(True)
         chart = QChart()
         chart.addSeries(series)
@@ -179,11 +196,9 @@ class MainWindow(QMainWindow):
         view.setRenderHint(QPainter.Antialiasing)
         view.setChart(chart)
 
-    # —— 导入 CSV —— #
+    # —— CSV 导入 —— #
     def import_csv(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "选择 CSV 文件", "", "CSV Files (*.csv)"
-        )
+        path, _ = QFileDialog.getOpenFileName(self, "选择 CSV 文件", "", "CSV Files (*.csv)")
         if path:
             self.csv_path = path
             self.ui.File_path_display.setText(path)
@@ -201,62 +216,55 @@ class MainWindow(QMainWindow):
 
     # —— 显示预测结果 —— #
     def show_predict(self, x, y_pred):
-        # 计算预测最大磨损值
         max_pred = float(max(y_pred))
-
-        # 创建图表
         chart = QChart()
 
         # 预测磨损曲线
-        series_pred = QLineSeries()
-        series_pred.setName("预测磨损")
+        series_pred = QLineSeries(name="预测磨损")
         for xi, yi in zip(x, y_pred):
             series_pred.append(float(xi), float(yi))
         series_pred.setPen(QPen(QColor("#007acc"), 2))
         chart.addSeries(series_pred)
 
         # 预测最大磨损量横线
-        series_max = QLineSeries()
-        series_max.setName("预测最大磨损量")
+        series_max = QLineSeries(name="预测最大磨损量")
         series_max.append(min(x), max_pred)
         series_max.append(max(x), max_pred)
         series_max.setPen(QPen(QColor("#e74c3c"), 2, Qt.DashLine))
         chart.addSeries(series_max)
 
-        # 坐标轴设置
+        # 坐标轴
         axisX = QValueAxis()
         axisX.setTitleText("运行次数 (time)")
         axisX.setLabelFormat("%d")
         axisX.setRange(min(x), max(x))
-
         axisY = QValueAxis()
         axisY.setTitleText("磨损量 VB")
         axisY.setLabelFormat("%.2f")
-        axisY.setRange(0, max_pred * 1.1)
+        axisY.setRange(0, max_pred*1.1)
 
         chart.addAxis(axisX, Qt.AlignBottom)
         chart.addAxis(axisY, Qt.AlignLeft)
         series_pred.attachAxis(axisX); series_pred.attachAxis(axisY)
         series_max.attachAxis(axisX); series_max.attachAxis(axisY)
 
-        # 美化图表
+        # 美化
         chart.setTitle("刀具磨损预测与预测最大磨损量")
         chart.legend().setVisible(True)
         chart.legend().setAlignment(Qt.AlignRight)
 
-        # 在 QChartView 中显示
+        # 显示
         view = self.ui.Data_analysis_result_presentation
         view.setRenderHint(QPainter.Antialiasing)
         view.setChart(chart)
 
-        # 添加最大值标签到 y 轴
+        # 标注最大值
         scene = view.scene()
-        if scene is None:
-            return
-        pt_axis = QPointF(min(x), max_pred)
-        pos = chart.mapToPosition(pt_axis, series_pred)
-        text = QGraphicsSimpleTextItem(f"{max_pred:.2f}")
-        text.setBrush(QBrush(QColor("#e74c3c")))
-        bounds = text.boundingRect()
-        text.setPos(pos.x() - bounds.width() - 5, pos.y() - bounds.height() / 2)
-        scene.addItem(text)
+        if scene:
+            pt = QPointF(min(x), max_pred)
+            pos = chart.mapToPosition(pt, series_pred)
+            text = QGraphicsSimpleTextItem(f"{max_pred:.2f}")
+            text.setBrush(QBrush(QColor("#e74c3c")))
+            b = text.boundingRect()
+            text.setPos(pos.x()-b.width()-5, pos.y()-b.height()/2)
+            scene.addItem(text)
