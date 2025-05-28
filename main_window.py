@@ -1,14 +1,22 @@
-# -*- coding: utf-8 -*-
+# main_window.py
+
+import sys
+import os
+import pandas as pd
+import joblib
+
 from PySide6.QtCore        import Qt, QThread, Signal, QPointF
-from PySide6.QtGui         import QPainter, QColor, QPen, QBrush
-from PySide6.QtWidgets import (
-    QMainWindow, QFileDialog, QMessageBox, QHeaderView,
-    QGraphicsSimpleTextItem, QAbstractItemView
+from PySide6.QtGui         import (
+    QPainter, QColor, QPen, QBrush, QPixmap,
+    QStandardItemModel, QStandardItem
+)
+from PySide6.QtWidgets     import (
+    QMainWindow, QFileDialog, QMessageBox,
+    QHeaderView, QGraphicsScene, QAbstractItemView,
+    QGraphicsSimpleTextItem
 )
 from PySide6.QtCharts      import QChart, QPieSeries, QLineSeries, QValueAxis
 import PySide6.QtSql        as QtSql
-import pandas as pd
-import joblib
 
 from Interface_module      import Ui_Form
 from db                    import get_conn, DB_FILE
@@ -25,12 +33,12 @@ class PredictWorker(QThread):
         self.csv_path = csv_path
 
     def run(self):
-        # 1. 加载模型
+        # 1) 加载模型
         self.progress.emit(5)
         model = joblib.load(MODEL_FILE)
         self.progress.emit(20)
 
-        # 2. 读取 CSV 并预处理
+        # 2) 读取 CSV 并预处理
         df = pd.read_csv(self.csv_path)
         feat_cols = [
             'time','DOC','feed',
@@ -43,15 +51,14 @@ class PredictWorker(QThread):
         for col in ('mat_1','mat_2'):
             if col not in mats:
                 mats[col] = 0
-        mats = mats[['mat_1','mat_2']]
-        X = pd.concat([X, mats], axis=1)
+        X = pd.concat([X, mats[['mat_1','mat_2']]], axis=1)
         self.progress.emit(50)
 
-        # 3. 预测
+        # 3) 预测
         y_pred = model.predict(X)
         self.progress.emit(90)
 
-        # 4. 发射结果
+        # 4) 发射结果
         self.finished.emit(list(df.index), y_pred.tolist())
         self.progress.emit(100)
 
@@ -82,7 +89,7 @@ class MainWindow(QMainWindow):
         if not db.open():
             QMessageBox.critical(self, "数据库错误", db.lastError().text())
 
-        # 界面切换
+        # 界面切换按钮
         self.ui.Main_interface_button.clicked.connect(
             lambda: self.ui.stackedWidget.setCurrentWidget(self.ui.Main_interface))
         self.ui.Visual_interface_button.clicked.connect(
@@ -96,6 +103,8 @@ class MainWindow(QMainWindow):
         self.ui.Tool_information_search_button.clicked.connect(self.search_tool)
         self.ui.Tool_information_delete.clicked.connect(self.delete_selected)
         self.ui.Tool_information_enty.clicked.connect(self.insert_row)
+        # 点击左侧表格，显示详情
+        self.ui.Tool_information_view.clicked.connect(self.show_tool_details)
         self.load_table(0)
 
         # 可视化模块
@@ -111,10 +120,10 @@ class MainWindow(QMainWindow):
             pass
         self.ui.Start_data_analysis_button.clicked.connect(self.start_predict)
 
-    # —— 刀具数据库操作 —— #
+    # —— 刀具库操作 —— #
     def load_table(self, idx: int):
         """
-        加载第 idx 个刀具表，并对 QTableView 进行列宽和滚动条优化。
+        加载第 idx 个刀具表，并优化表格显示（列宽自适应、滚动条按需出现等）。
         """
         table = self.TABLE_MAP[idx]
         db = QtSql.QSqlDatabase.database("tools_conn")
@@ -128,19 +137,14 @@ class MainWindow(QMainWindow):
 
         # —— 表格显示优化 —— #
         header = tv.horizontalHeader()
-        # 所有列按内容自适应
         header.setSectionResizeMode(QHeaderView.ResizeToContents)
-        # 最后一列填满剩余空间
         header.setStretchLastSection(True)
-        # 像素级平滑滚动
+
         tv.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
         tv.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
-        # 滚动条按需出现
         tv.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         tv.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        # 交替行色
         tv.setAlternatingRowColors(True)
-        # 自动行高
         tv.resizeRowsToContents()
 
     def search_tool(self):
@@ -158,9 +162,44 @@ class MainWindow(QMainWindow):
     def insert_row(self):
         self.model.insertRow(self.model.rowCount())
 
-    # —— 饼图可视化 —— #
+    # —— 显示刀具详情 —— #
+    def show_tool_details(self, index):
+        rec = self.model.record(index.row())
+
+        # 1) 在 Tool_data_view 显示所有字段
+        cols = rec.count()
+        m = QStandardItemModel(cols, 2, self)
+        m.setHorizontalHeaderLabels(["属性", "值"])
+        for c in range(cols):
+            name = rec.fieldName(c)
+            val  = rec.value(c)
+            m.setItem(c, 0, QStandardItem(name))
+            m.setItem(c, 1, QStandardItem(str(val)))
+        tv = self.ui.Tool_data_view
+        tv.setModel(m)
+        tv.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+
+        # 2) 在 Tool_image_view 显示三维图
+        relpath = rec.value("刀具图片路径") or ""
+        if getattr(sys, "frozen", False):
+            base = sys._MEIPASS
+        else:
+            base = os.path.dirname(__file__)
+        img_file = os.path.join(base, relpath)
+
+        scene = QGraphicsScene(self.ui.Tool_image_view)
+        if os.path.exists(img_file):
+            pix = QPixmap(img_file)
+            scene.addPixmap(pix.scaled(
+                self.ui.Tool_image_view.size(),
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation
+            ))
+        self.ui.Tool_image_view.setScene(scene)
+
+    # —— 饼状图可视化 —— #
     def refresh_charts(self):
-        conn = get_conn()  # 不要传参
+        conn = get_conn()
         cur = conn.cursor()
         for table, attr in self.CHART_MAP.items():
             col = "刀具状况" if table in ("drill_tools", "indexable_mill_tools") else "刀具状态"
@@ -177,7 +216,7 @@ class MainWindow(QMainWindow):
         series = QPieSeries()
         total = sum(counts.values())
         if total == 0:
-            sl = series.append("无数据",1)
+            sl = series.append("无数据", 1)
             sl.setBrush(Qt.lightGray)
             sl.setLabelVisible(True)
         else:
@@ -196,14 +235,14 @@ class MainWindow(QMainWindow):
         view.setRenderHint(QPainter.Antialiasing)
         view.setChart(chart)
 
-    # —— CSV 导入 —— #
+    # —— 导入 CSV —— #
     def import_csv(self):
         path, _ = QFileDialog.getOpenFileName(self, "选择 CSV 文件", "", "CSV Files (*.csv)")
         if path:
             self.csv_path = path
             self.ui.File_path_display.setText(path)
 
-    # —— 启动预测线程 —— #
+    # —— 启动预测 —— #
     def start_predict(self):
         if not self.csv_path:
             QMessageBox.warning(self, "提示", "请先导入 CSV 文件")
@@ -233,7 +272,6 @@ class MainWindow(QMainWindow):
         series_max.setPen(QPen(QColor("#e74c3c"), 2, Qt.DashLine))
         chart.addSeries(series_max)
 
-        # 坐标轴
         axisX = QValueAxis()
         axisX.setTitleText("运行次数 (time)")
         axisX.setLabelFormat("%d")
@@ -241,19 +279,17 @@ class MainWindow(QMainWindow):
         axisY = QValueAxis()
         axisY.setTitleText("磨损量 VB")
         axisY.setLabelFormat("%.2f")
-        axisY.setRange(0, max_pred*1.1)
+        axisY.setRange(0, max_pred * 1.1)
 
         chart.addAxis(axisX, Qt.AlignBottom)
         chart.addAxis(axisY, Qt.AlignLeft)
         series_pred.attachAxis(axisX); series_pred.attachAxis(axisY)
         series_max.attachAxis(axisX); series_max.attachAxis(axisY)
 
-        # 美化
         chart.setTitle("刀具磨损预测与预测最大磨损量")
         chart.legend().setVisible(True)
         chart.legend().setAlignment(Qt.AlignRight)
 
-        # 显示
         view = self.ui.Data_analysis_result_presentation
         view.setRenderHint(QPainter.Antialiasing)
         view.setChart(chart)
@@ -261,10 +297,10 @@ class MainWindow(QMainWindow):
         # 标注最大值
         scene = view.scene()
         if scene:
-            pt = QPointF(min(x), max_pred)
-            pos = chart.mapToPosition(pt, series_pred)
+            pos = chart.mapToPosition(QPointF(min(x), max_pred), series_pred)
             text = QGraphicsSimpleTextItem(f"{max_pred:.2f}")
             text.setBrush(QBrush(QColor("#e74c3c")))
             b = text.boundingRect()
-            text.setPos(pos.x()-b.width()-5, pos.y()-b.height()/2)
+            text.setPos(pos.x() - b.width() - 5,
+                        pos.y() - b.height()/2)
             scene.addItem(text)
